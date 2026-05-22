@@ -1,0 +1,1213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes, viewport-fit=cover">
+    <meta name="theme-color" content="#000000">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Navigate · Like Google Maps</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <style>
+        :root {
+            --glass-bg: rgba(20, 20, 25, 0.75);
+            --glass-border: rgba(255, 255, 255, 0.18);
+            --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            --blur: blur(30px);
+            --text: #FFFFFF;
+            --text-secondary: rgba(255, 255, 255, 0.7);
+            --accent: #0A84FF;
+            --accent-glow: rgba(10, 132, 255, 0.5);
+            --danger: #FF453A;
+            --success: #30D158;
+            --warning: #FFD60A;
+            --radius: 20px;
+            --radius-sm: 14px;
+            --transition: 0.3s cubic-bezier(0.25, 0.1, 0.25, 1);
+            --safe-bottom: env(safe-area-inset-bottom, 20px);
+            --safe-top: env(safe-area-inset-top, 16px);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', sans-serif;
+            height: 100vh;
+            height: 100dvh;
+            overflow: hidden;
+            background: #000;
+            color: var(--text);
+            -webkit-font-smoothing: antialiased;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        #map {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            background: #1a1a2e;
+        }
+
+        /* Top Bar - Hidden during navigation */
+        .top-bar {
+            position: fixed;
+            top: var(--safe-top);
+            left: 12px;
+            right: 12px;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            transition: opacity 0.3s, transform 0.3s;
+        }
+        body.navigating .top-bar {
+            opacity: 0;
+            pointer-events: none;
+            transform: translateY(-20px);
+        }
+
+        .search-glass {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 14px;
+            background: var(--glass-bg);
+            backdrop-filter: var(--blur);
+            -webkit-backdrop-filter: var(--blur);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--radius);
+            box-shadow: var(--glass-shadow);
+            transition: all var(--transition);
+        }
+        .search-glass:focus-within {
+            background: rgba(30, 30, 40, 0.9);
+            border-color: var(--accent);
+            box-shadow: 0 0 30px var(--accent-glow);
+        }
+
+        .search-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .dot-green { background: var(--success); box-shadow: 0 0 10px rgba(48,209,88,0.8); }
+        .dot-red { background: var(--danger); box-shadow: 0 0 10px rgba(255,69,58,0.8); }
+
+        .search-input {
+            flex: 1;
+            background: none;
+            border: none;
+            color: var(--text);
+            font-size: 15px;
+            outline: none;
+            font-weight: 500;
+            min-width: 0;
+            -webkit-user-select: text;
+            user-select: text;
+        }
+        .search-input::placeholder { color: rgba(255,255,255,0.4); }
+
+        .btn-row {
+            display: flex;
+            gap: 6px;
+            align-self: flex-end;
+        }
+
+        .glass-btn {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: var(--glass-bg);
+            backdrop-filter: var(--blur);
+            -webkit-backdrop-filter: var(--blur);
+            border: 1px solid var(--glass-border);
+            color: var(--text);
+            font-size: 18px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all var(--transition);
+            box-shadow: var(--glass-shadow);
+            flex-shrink: 0;
+        }
+        .glass-btn:active { transform: scale(0.9); background: rgba(255,255,255,0.2); }
+        .glass-btn.accent { background: rgba(10,132,255,0.4); border-color: rgba(10,132,255,0.6); box-shadow: 0 0 20px var(--accent-glow); }
+
+        /* Navigation Banner */
+        .nav-banner {
+            position: fixed;
+            top: var(--safe-top);
+            left: 12px;
+            right: 12px;
+            z-index: 2000;
+            background: rgba(10, 132, 255, 0.9);
+            backdrop-filter: var(--blur);
+            -webkit-backdrop-filter: var(--blur);
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: var(--radius);
+            padding: 14px 16px;
+            display: none;
+            align-items: center;
+            gap: 10px;
+            box-shadow: 0 10px 30px rgba(10,132,255,0.4);
+        }
+        body.navigating .nav-banner { display: flex; }
+
+        .nav-banner-icon {
+            font-size: 28px;
+            animation: pulse 1.5s ease-in-out infinite;
+            flex-shrink: 0;
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.15); }
+        }
+
+        .nav-banner-info { flex: 1; min-width: 0; }
+        .nav-banner-instruction {
+            font-size: 16px;
+            font-weight: 700;
+            letter-spacing: -0.3px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .nav-banner-distance {
+            font-size: 12px;
+            opacity: 0.9;
+            margin-top: 2px;
+        }
+        .nav-banner-eta {
+            font-size: 14px;
+            font-weight: 600;
+            text-align: right;
+            flex-shrink: 0;
+        }
+        .nav-banner-eta small { font-size: 10px; opacity: 0.8; display: block; }
+
+        .nav-end-btn {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.2);
+            border: none;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        .nav-end-btn:active { background: rgba(255,255,255,0.4); }
+
+        /* Navigation Info Bar (Bottom) */
+        .nav-info-bar {
+            position: fixed;
+            bottom: calc(var(--safe-bottom) + 60px);
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 2000;
+            background: rgba(0,0,0,0.85);
+            backdrop-filter: var(--blur);
+            -webkit-backdrop-filter: var(--blur);
+            border: 1px solid var(--glass-border);
+            border-radius: 50px;
+            padding: 8px 18px;
+            display: none;
+            gap: 16px;
+            box-shadow: var(--glass-shadow);
+            font-size: 12px;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        body.navigating .nav-info-bar { display: flex; }
+
+        .nav-info-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .nav-info-value { color: var(--accent); font-size: 15px; font-weight: 700; }
+
+        /* Controls Panel - Right side */
+        .controls-panel {
+            position: fixed;
+            right: 12px;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+        body.navigating .controls-panel {
+            top: auto;
+            bottom: calc(var(--safe-bottom) + 110px);
+            transform: none;
+        }
+
+        .control-btn {
+            width: 42px;
+            height: 42px;
+            border-radius: var(--radius-sm);
+            background: var(--glass-bg);
+            backdrop-filter: var(--blur);
+            -webkit-backdrop-filter: var(--blur);
+            border: 1px solid var(--glass-border);
+            color: var(--text);
+            font-size: 17px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all var(--transition);
+            box-shadow: var(--glass-shadow);
+        }
+        .control-btn:active { transform: scale(0.9); }
+        .control-btn.active { background: rgba(10,132,255,0.35); border-color: var(--accent); box-shadow: 0 0 20px var(--accent-glow); }
+        .control-btn.recenter-btn {
+            display: none;
+            background: rgba(10,132,255,0.5);
+            border-color: var(--accent);
+            animation: glowPulse 2s ease-in-out infinite;
+        }
+        @keyframes glowPulse {
+            0%, 100% { box-shadow: 0 0 15px var(--accent-glow); }
+            50% { box-shadow: 0 0 30px var(--accent-glow); }
+        }
+        body.navigating .control-btn.recenter-btn { display: flex; }
+
+        /* Bottom Sheet */
+        .bottom-sheet {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            z-index: 1500;
+            background: rgba(20,20,25,0.95);
+            backdrop-filter: var(--blur);
+            -webkit-backdrop-filter: var(--blur);
+            border-top: 1px solid var(--glass-border);
+            border-radius: 24px 24px 0 0;
+            padding-bottom: var(--safe-bottom);
+            transform: translateY(100%);
+            transition: transform 0.4s cubic-bezier(0.32, 0.72, 0, 1);
+            max-height: 40vh;
+            max-height: 40dvh;
+            display: flex;
+            flex-direction: column;
+        }
+        .bottom-sheet.active { transform: translateY(0); }
+        .sheet-handle {
+            width: 36px;
+            height: 4px;
+            background: rgba(255,255,255,0.3);
+            border-radius: 2px;
+            margin: 10px auto;
+            flex-shrink: 0;
+        }
+        .sheet-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0 16px 16px;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .step-item {
+            display: flex;
+            gap: 12px;
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            align-items: flex-start;
+        }
+        .step-icon { font-size: 18px; width: 28px; text-align: center; flex-shrink: 0; margin-top: 1px; }
+        .step-text { flex: 1; font-size: 13px; line-height: 1.4; min-width: 0; }
+        .step-dist { font-size: 11px; color: var(--text-secondary); white-space: nowrap; flex-shrink: 0; }
+
+        /* Session Panel - Bottom */
+        .session-panel {
+            position: fixed;
+            bottom: calc(var(--safe-bottom) + 10px);
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000;
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            padding: 6px 12px;
+            background: var(--glass-bg);
+            backdrop-filter: var(--blur);
+            -webkit-backdrop-filter: var(--blur);
+            border: 1px solid var(--glass-border);
+            border-radius: 50px;
+            box-shadow: var(--glass-shadow);
+            transition: opacity 0.3s, transform 0.3s;
+        }
+        body.navigating .session-panel {
+            opacity: 0;
+            pointer-events: none;
+            transform: translateX(-50%) translateY(20px);
+        }
+
+        .session-btn {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.1);
+            border: none;
+            color: var(--text);
+            font-size: 14px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        .session-btn:active { background: rgba(255,255,255,0.25); }
+
+        .session-id {
+            font-size: 11px;
+            color: var(--text-secondary);
+            max-width: 100px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            cursor: pointer;
+            padding: 0 4px;
+        }
+
+        .session-input-row {
+            display: none;
+            gap: 4px;
+            align-items: center;
+        }
+        .session-input-row.active { display: flex; }
+        .session-input {
+            width: 80px;
+            padding: 6px 10px;
+            border-radius: 20px;
+            border: 1px solid var(--glass-border);
+            background: rgba(255,255,255,0.1);
+            color: var(--text);
+            font-size: 12px;
+            outline: none;
+            text-align: center;
+            -webkit-user-select: text;
+            user-select: text;
+        }
+        .session-input::placeholder { color: rgba(255,255,255,0.4); }
+
+        /* Users List - Top right */
+        .users-list {
+            position: fixed;
+            top: calc(var(--safe-top) + 10px);
+            right: 12px;
+            z-index: 1500;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            pointer-events: none;
+        }
+        body.navigating .users-list {
+            top: calc(var(--safe-top) + 80px);
+        }
+
+        .user-badge {
+            padding: 6px 10px;
+            background: var(--glass-bg);
+            backdrop-filter: var(--blur);
+            -webkit-backdrop-filter: var(--blur);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            box-shadow: var(--glass-shadow);
+            animation: slideIn 0.3s ease;
+            pointer-events: auto;
+        }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(20px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        .user-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            top: 60px;
+            left: 50%;
+            transform: translateX(-50%) translateY(-140px);
+            background: rgba(0,0,0,0.9);
+            backdrop-filter: var(--blur);
+            border: 1px solid var(--glass-border);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 50px;
+            font-size: 13px;
+            font-weight: 600;
+            z-index: 3000;
+            transition: transform 0.4s cubic-bezier(0.32, 0.72, 0, 1);
+            pointer-events: none;
+            white-space: nowrap;
+        }
+        .toast.show { transform: translateX(-50%) translateY(0); }
+
+        /* Leaflet overrides */
+        .leaflet-control-attribution { display: none !important; }
+        .leaflet-routing-container { display: none !important; }
+        .leaflet-control-zoom {
+            position: fixed !important;
+            left: 12px !important;
+            bottom: calc(var(--safe-bottom) + 80px) !important;
+            top: auto !important;
+        }
+        body.navigating .leaflet-control-zoom {
+            bottom: calc(var(--safe-bottom) + 150px) !important;
+        }
+
+        @media (max-width: 380px) {
+            .nav-banner { padding: 10px 12px; }
+            .nav-banner-instruction { font-size: 14px; }
+            .nav-banner-icon { font-size: 24px; }
+            .control-btn { width: 38px; height: 38px; font-size: 16px; }
+            .glass-btn { width: 38px; height: 38px; font-size: 16px; }
+            .nav-info-bar { padding: 6px 14px; gap: 12px; font-size: 11px; }
+            .nav-info-value { font-size: 13px; }
+        }
+        @media (min-width: 768px) {
+            .top-bar, .nav-banner, .controls-panel, .session-panel, .nav-info-bar {
+                max-width: 500px;
+            }
+            .top-bar { left: 50%; transform: translateX(-50%); right: auto; width: 500px; }
+            body.navigating .top-bar { transform: translateX(-50%) translateY(-20px); }
+            .controls-panel { right: calc(50% - 270px); }
+            .nav-banner { left: 50%; transform: translateX(-50%); right: auto; width: 500px; }
+            .session-panel { left: 50%; transform: translateX(-50%); }
+            body.navigating .session-panel { transform: translateX(-50%) translateY(20px); }
+            .users-list { right: calc(50% - 250px); }
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+
+    <!-- Navigation Banner -->
+    <div class="nav-banner" id="navBanner">
+        <div class="nav-banner-icon" id="navBannerIcon">↑</div>
+        <div class="nav-banner-info">
+            <div class="nav-banner-instruction" id="navInstruction">Start driving</div>
+            <div class="nav-banner-distance" id="navDistance"></div>
+        </div>
+        <div class="nav-banner-eta">
+            <span id="navEta">--</span>
+            <small>ETA</small>
+        </div>
+        <button class="nav-end-btn" id="endNavBtn">✕</button>
+    </div>
+
+    <!-- Top Bar -->
+    <div class="top-bar" id="topBar">
+        <div class="search-glass">
+            <div class="search-dot dot-green"></div>
+            <input type="text" class="search-input" id="startInput" placeholder="Current location" autocomplete="off" enterkeyhint="next">
+        </div>
+        <div class="search-glass">
+            <div class="search-dot dot-red"></div>
+            <input type="text" class="search-input" id="endInput" placeholder="Where to?" autocomplete="off" enterkeyhint="go">
+        </div>
+        <div class="btn-row">
+            <button class="glass-btn accent" id="goBtn">▶</button>
+            <button class="glass-btn" id="swapBtn">⇅</button>
+        </div>
+    </div>
+
+    <!-- Users List -->
+    <div class="users-list" id="usersList"></div>
+
+    <!-- Controls -->
+    <div class="controls-panel" id="controlsPanel">
+        <button class="control-btn" id="locateBtn" title="My Location">📍</button>
+        <button class="control-btn recenter-btn" id="recenterBtn" title="Re-center on me">⊙</button>
+        <button class="control-btn" id="overviewBtn" title="Overview" style="display:none;">🗺️</button>
+        <button class="control-btn" id="shareBtn" title="Share">🔗</button>
+    </div>
+
+    <!-- Navigation Info Bar -->
+    <div class="nav-info-bar" id="navInfoBar">
+        <div class="nav-info-item">
+            <span>📏</span>
+            <span class="nav-info-value" id="navRemainingDist">--</span>
+            <span>left</span>
+        </div>
+        <div class="nav-info-item">
+            <span>⏱</span>
+            <span class="nav-info-value" id="navRemainingTime">--</span>
+        </div>
+        <div class="nav-info-item">
+            <span>🏎️</span>
+            <span class="nav-info-value" id="navSpeed">0</span>
+            <span>mph</span>
+        </div>
+    </div>
+
+    <!-- Bottom Sheet -->
+    <div class="bottom-sheet" id="bottomSheet">
+        <div class="sheet-handle"></div>
+        <div class="sheet-content" id="sheetContent"></div>
+    </div>
+
+    <!-- Session Panel -->
+    <div class="session-panel" id="sessionPanel">
+        <button class="session-btn" id="createSessionBtn" title="Create Session">+</button>
+        <div class="session-id" id="sessionIdDisplay">Share location</div>
+        <div class="session-input-row" id="joinInputRow">
+            <input type="text" class="session-input" id="joinInput" placeholder="Code" maxlength="10" autocomplete="off">
+            <button class="session-btn" id="joinConfirmBtn">✓</button>
+            <button class="session-btn" id="joinCancelBtn">✕</button>
+        </div>
+        <button class="session-btn" id="joinSessionBtn" title="Join Session">👥</button>
+    </div>
+
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+    
+    <script type="module">
+        // ==================== MAP ====================
+        const map = L.map('map', {
+            center: [40.7128, -74.0060],
+            zoom: 15,
+            zoomControl: false,
+            attributionControl: false
+        });
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19
+        }).addTo(map);
+
+        L.control.zoom({ position: 'bottomleft' }).addTo(map);
+        console.log('✅ Map ready');
+
+        // ==================== STATE ====================
+        let userMarker = null;
+        let destinationMarker = null;
+        let routingControl = null;
+        let routeData = null;
+        let navigationActive = false;
+        let navigationInterval = null;
+        let currentLocation = null;
+        let currentHeading = 0;
+        let currentSpeed = 0;
+        let currentStepIndex = 0;
+        let allSteps = [];
+        let sessionId = null;
+        let myPeerId = null;
+        let peerInstance = null;
+        let connections = [];
+        let peerMarkers = {};
+        let locationWatchId = null;
+        let userZoomedOut = false;
+        let userDraggedMap = false;
+        let recenterTimeout = null;
+        const userColors = ['#FF453A', '#30D158', '#FFD60A', '#64D2FF', '#BF5AF2', '#FF9F0A'];
+
+        // ==================== DOM ====================
+        const startInput = document.getElementById('startInput');
+        const endInput = document.getElementById('endInput');
+        const goBtn = document.getElementById('goBtn');
+        const swapBtn = document.getElementById('swapBtn');
+        const locateBtn = document.getElementById('locateBtn');
+        const recenterBtn = document.getElementById('recenterBtn');
+        const overviewBtn = document.getElementById('overviewBtn');
+        const shareBtn = document.getElementById('shareBtn');
+        const navBanner = document.getElementById('navBanner');
+        const navBannerIcon = document.getElementById('navBannerIcon');
+        const navInstruction = document.getElementById('navInstruction');
+        const navDistance = document.getElementById('navDistance');
+        const navEta = document.getElementById('navEta');
+        const endNavBtn = document.getElementById('endNavBtn');
+        const navInfoBar = document.getElementById('navInfoBar');
+        const navRemainingDist = document.getElementById('navRemainingDist');
+        const navRemainingTime = document.getElementById('navRemainingTime');
+        const navSpeed = document.getElementById('navSpeed');
+        const bottomSheet = document.getElementById('bottomSheet');
+        const sheetContent = document.getElementById('sheetContent');
+        const sessionIdDisplay = document.getElementById('sessionIdDisplay');
+        const createSessionBtn = document.getElementById('createSessionBtn');
+        const joinSessionBtn = document.getElementById('joinSessionBtn');
+        const joinInputRow = document.getElementById('joinInputRow');
+        const joinInput = document.getElementById('joinInput');
+        const joinConfirmBtn = document.getElementById('joinConfirmBtn');
+        const joinCancelBtn = document.getElementById('joinCancelBtn');
+        const toast = document.getElementById('toast');
+        const usersList = document.getElementById('usersList');
+        const sessionPanel = document.getElementById('sessionPanel');
+
+        // ==================== UTILS ====================
+        function showToast(msg, dur = 3000) {
+            toast.textContent = msg;
+            toast.classList.add('show');
+            clearTimeout(toast._t);
+            toast._t = setTimeout(() => toast.classList.remove('show'), dur);
+        }
+
+        function getColor(i) { return userColors[i % userColors.length]; }
+
+        function formatDist(m) {
+            if (m >= 1000) return `${(m/1000).toFixed(1)} km`;
+            return `${Math.round(m)} m`;
+        }
+
+        function formatTime(s) {
+            const h = Math.floor(s/3600), min = Math.round((s%3600)/60);
+            return h ? `${h}h ${min}m` : `${min} min`;
+        }
+
+        // ==================== GEOLOCATION ====================
+        function getPosition() {
+            return new Promise((resolve, reject) => {
+                if (!navigator.geolocation) { reject(new Error('No geolocation')); return; }
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => resolve({
+                        lat: pos.coords.latitude,
+                        lng: pos.coords.longitude,
+                        heading: pos.coords.heading || 0,
+                        speed: pos.coords.speed || 0
+                    }),
+                    reject,
+                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+                );
+            });
+        }
+
+        function startWatchingPosition() {
+            if (!navigator.geolocation) return;
+            if (locationWatchId) navigator.geolocation.clearWatch(locationWatchId);
+            
+            locationWatchId = navigator.geolocation.watchPosition(
+                (pos) => {
+                    const loc = {
+                        lat: pos.coords.latitude,
+                        lng: pos.coords.longitude,
+                        heading: pos.coords.heading || currentHeading,
+                        speed: pos.coords.speed || 0
+                    };
+                    currentHeading = loc.heading;
+                    currentSpeed = loc.speed * 3.6;
+                    updateUserMarker(loc.lat, loc.lng, loc.heading);
+                    
+                    if (navigationActive) {
+                        updateNavigation(loc);
+                    }
+                    
+                    if (connections.length > 0) broadcastLocation(loc);
+                },
+                (err) => console.warn('Watch error:', err),
+                { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+            );
+        }
+
+        // ==================== MARKERS ====================
+        function createArrowIcon(heading, color = '#0A84FF', size = 24) {
+            return L.divIcon({
+                className: '',
+                html: `<div style="
+                    width:${size}px;height:${size}px;
+                    background:${color};
+                    border:3px solid white;
+                    border-radius:50%;
+                    box-shadow:0 0 20px ${color}88,0 4px 12px rgba(0,0,0,0.5);
+                    display:flex;align-items:center;justify-content:center;
+                    font-size:${size*0.45}px;
+                    transform:rotate(${heading}deg);
+                    transition:transform 0.3s ease;
+                ">▲</div>`,
+                iconSize: [size, size],
+                iconAnchor: [size/2, size/2]
+            });
+        }
+
+        function updateUserMarker(lat, lng, heading = 0) {
+            if (!userMarker) {
+                userMarker = L.marker([lat, lng], {
+                    icon: createArrowIcon(heading, '#0A84FF', 28)
+                }).addTo(map);
+            } else {
+                userMarker.setLatLng([lat, lng]);
+                userMarker.setIcon(createArrowIcon(heading, '#0A84FF', 28));
+            }
+            currentLocation = { lat, lng, heading };
+        }
+
+        // ==================== GEOCODING ====================
+        async function geocode(query) {
+            const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`;
+            const res = await fetch(url, { headers: { 'User-Agent': 'NavigateApp/3.0' } });
+            const data = await res.json();
+            if (!data?.length) throw new Error(`Not found: "${query}"`);
+            return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon), name: data[0].display_name };
+        }
+
+        // ==================== ROUTING ====================
+        async function calculateAndDisplayRoute(start, end) {
+            if (routingControl) { map.removeControl(routingControl); routingControl = null; }
+            if (destinationMarker) { map.removeLayer(destinationMarker); destinationMarker = null; }
+
+            destinationMarker = L.marker([end.lat, end.lng], {
+                icon: L.divIcon({
+                    className: '',
+                    html: '<div style="width:20px;height:20px;background:#FF453A;border:3px solid white;border-radius:50%;box-shadow:0 0 20px rgba(255,69,58,0.8);"></div>',
+                    iconSize: [20, 20],
+                    iconAnchor: [10, 10]
+                })
+            }).addTo(map);
+
+            routingControl = L.Routing.control({
+                waypoints: [L.latLng(start.lat, start.lng), L.latLng(end.lat, end.lng)],
+                routeWhileDragging: false,
+                showAlternatives: false,
+                fitSelectedRoutes: true,
+                lineOptions: { styles: [{ color: '#0A84FF', weight: 6, opacity: 0.9 }] },
+                createMarker: () => null
+            }).addTo(map);
+
+            return new Promise((resolve, reject) => {
+                routingControl.on('routesfound', (e) => {
+                    routeData = e.routes[0];
+                    allSteps = [];
+                    routeData.instructions.forEach((inst, i) => {
+                        allSteps.push({
+                            index: i,
+                            text: inst.text,
+                            distance: inst.distance,
+                            time: inst.time,
+                            road: inst.road || '',
+                            type: getStepType(inst.text)
+                        });
+                    });
+
+                    const bounds = L.latLngBounds([
+                        [start.lat, start.lng],
+                        [end.lat, end.lng]
+                    ]);
+                    map.fitBounds(bounds, { padding: [100, 100], maxZoom: 16 });
+                    
+                    displayRouteSummary(routeData);
+                    resolve(routeData);
+                });
+                routingControl.on('routingerror', () => reject(new Error('No route found')));
+            });
+        }
+
+        function getStepType(text) {
+            const t = text.toLowerCase();
+            if (t.includes('right')) return 'right';
+            if (t.includes('left')) return 'left';
+            if (t.includes('straight') || t.includes('head') || t.includes('continue')) return 'straight';
+            if (t.includes('arrive') || t.includes('destination')) return 'arrive';
+            if (t.includes('roundabout') || t.includes('rotary')) return 'roundabout';
+            if (t.includes('u-turn')) return 'uturn';
+            if (t.includes('merge')) return 'merge';
+            if (t.includes('exit')) return 'exit';
+            return 'straight';
+        }
+
+        function getDirectionIcon(type) {
+            const icons = {
+                'right': '↱', 'left': '↰', 'straight': '↑', 'arrive': '🏁',
+                'roundabout': '🔄', 'uturn': '↩', 'merge': '🔀', 'exit': '🚪'
+            };
+            return icons[type] || '→';
+        }
+
+        function displayRouteSummary(route) {
+            const dist = route.summary.totalDistance;
+            const time = route.summary.totalTime;
+            
+            sheetContent.innerHTML = `
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:12px;">
+                    <div>
+                        <div style="font-size:12px;color:var(--text-secondary);">Total</div>
+                        <div style="font-size:18px;font-weight:700;">${formatDist(dist)}</div>
+                        <div style="font-size:13px;color:var(--text-secondary);">${formatTime(time)}</div>
+                    </div>
+                    <button class="glass-btn" id="startNavBtn" style="width:auto;height:auto;padding:10px 20px;border-radius:50px;font-size:15px;font-weight:700;white-space:nowrap;">
+                        ▶ Start Nav
+                    </button>
+                </div>
+                ${allSteps.map((step, i) => `
+                    <div class="step-item" style="${i === 0 ? 'background:rgba(10,132,255,0.12);border-radius:10px;padding:8px 10px;' : ''}">
+                        <div class="step-icon">${getDirectionIcon(step.type)}</div>
+                        <div class="step-text">${step.text}</div>
+                        <div class="step-dist">${formatDist(step.distance)}</div>
+                    </div>
+                `).join('')}
+            `;
+            
+            bottomSheet.classList.add('active');
+            document.getElementById('startNavBtn').addEventListener('click', startNavigation);
+        }
+
+        // ==================== NAVIGATION ====================
+        function startNavigation() {
+            if (!routeData || !currentLocation) {
+                showToast('Need route and location');
+                return;
+            }
+
+            navigationActive = true;
+            currentStepIndex = 0;
+            userZoomedOut = false;
+            userDraggedMap = false;
+            document.body.classList.add('navigating');
+            bottomSheet.classList.remove('active');
+            
+            updateETA();
+            startNavigationLoop();
+            recenterOnUser();
+            
+            // Show overview button during navigation
+            overviewBtn.style.display = 'flex';
+            
+            showToast('Navigation started 🚗');
+        }
+
+        function stopNavigation() {
+            navigationActive = false;
+            document.body.classList.remove('navigating');
+            if (navigationInterval) clearInterval(navigationInterval);
+            currentStepIndex = 0;
+            overviewBtn.style.display = 'none';
+            recenterBtn.classList.remove('active');
+            showToast('Navigation ended');
+        }
+
+        function updateETA() {
+            if (!routeData) return;
+            const now = new Date();
+            const arrivalTime = new Date(now.getTime() + routeData.summary.totalTime * 1000);
+            navEta.textContent = arrivalTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+
+        function recenterOnUser() {
+            if (!currentLocation || !navigationActive) return;
+            userZoomedOut = false;
+            userDraggedMap = false;
+            recenterBtn.classList.remove('active');
+            map.setView([currentLocation.lat, currentLocation.lng], 18, {
+                animate: true,
+                duration: 1
+            });
+        }
+
+        function updateNavigation(loc) {
+            if (!routeData || !navigationActive) return;
+
+            navSpeed.textContent = Math.round(currentSpeed * 0.621371);
+
+            let remainingDistance = 0;
+            let remainingTime = 0;
+            let foundCurrent = false;
+
+            for (let i = 0; i < allSteps.length; i++) {
+                if (i >= currentStepIndex) {
+                    if (!foundCurrent) {
+                        const step = allSteps[i];
+                        navBannerIcon.textContent = getDirectionIcon(step.type);
+                        navInstruction.textContent = step.text;
+                        navDistance.textContent = `In ${formatDist(step.distance)}`;
+                        foundCurrent = true;
+                    }
+                    remainingDistance += allSteps[i].distance;
+                    remainingTime += allSteps[i].time;
+                }
+            }
+
+            navRemainingDist.textContent = formatDist(remainingDistance);
+            navRemainingTime.textContent = formatTime(remainingTime);
+
+            if (currentStepIndex < allSteps.length - 1) {
+                const nextStepDist = allSteps[currentStepIndex].distance;
+                if (nextStepDist < 50) {
+                    currentStepIndex++;
+                }
+            }
+
+            if (remainingDistance < 20) {
+                navBannerIcon.textContent = '🏁';
+                navInstruction.textContent = 'You have arrived!';
+                navDistance.textContent = '';
+                setTimeout(stopNavigation, 3000);
+            }
+        }
+
+        function startNavigationLoop() {
+            if (!currentLocation || !routeData) return;
+            
+            recenterOnUser();
+
+            if (navigationInterval) clearInterval(navigationInterval);
+            navigationInterval = setInterval(() => {
+                if (!navigationActive || !currentLocation) return;
+                
+                // Only auto-pan if user hasn't manually moved the map
+                if (!userZoomedOut && !userDraggedMap) {
+                    map.panTo([currentLocation.lat, currentLocation.lng], {
+                        animate: true,
+                        duration: 1.5
+                    });
+                }
+                
+                updateETA();
+            }, 2000);
+        }
+
+        // ==================== SESSION SHARING ====================
+        function updateUsersListUI() {
+            const peerIds = Object.keys(peerMarkers);
+            let html = '';
+            peerIds.forEach((peerId, i) => {
+                html += `
+                    <div class="user-badge">
+                        <div class="user-dot" style="background:${getColor(i)};box-shadow:0 0 8px ${getColor(i)};"></div>
+                        ${peerId.slice(0, 6)}
+                    </div>
+                `;
+            });
+            usersList.innerHTML = html;
+        }
+
+        async function createSession() {
+            const { Peer } = await import('https://esm.sh/peerjs@1.5.2?bundle-deps');
+            sessionId = Math.random().toString(36).substring(2, 10).toUpperCase();
+            myPeerId = 'host-' + sessionId;
+            if (peerInstance) peerInstance.destroy();
+            
+            peerInstance = new Peer(myPeerId, { debug: 0 });
+            peerInstance.on('open', () => {
+                sessionIdDisplay.textContent = sessionId;
+                showToast('Session: ' + sessionId);
+            });
+            peerInstance.on('connection', (conn) => {
+                connections.push(conn);
+                setupConnection(conn, connections.length - 1);
+            });
+            peerInstance.on('error', () => showToast('Connection error'));
+        }
+
+        function showJoinInput() {
+            joinInputRow.classList.add('active');
+            joinInput.value = '';
+            joinInput.focus();
+        }
+
+        function hideJoinInput() {
+            joinInputRow.classList.remove('active');
+            joinInput.value = '';
+        }
+
+        async function confirmJoin() {
+            const id = joinInput.value.trim();
+            if (!id) { showToast('Enter a code'); return; }
+            hideJoinInput();
+            await joinSession(id);
+        }
+
+        async function joinSession(id) {
+            const { Peer } = await import('https://esm.sh/peerjs@1.5.2?bundle-deps');
+            sessionId = id;
+            myPeerId = 'guest-' + Math.random().toString(36).substring(2, 8);
+            if (peerInstance) peerInstance.destroy();
+            
+            peerInstance = new Peer(myPeerId, { debug: 0 });
+            peerInstance.on('open', () => {
+                const conn = peerInstance.connect('host-' + sessionId);
+                connections.push(conn);
+                setupConnection(conn, 0);
+                sessionIdDisplay.textContent = id;
+                showToast('Joined!');
+            });
+            peerInstance.on('error', () => showToast('Cannot join'));
+        }
+
+        function setupConnection(conn, colorIndex) {
+            conn.on('open', () => {
+                if (currentLocation) {
+                    conn.send(JSON.stringify({ type: 'location', ...currentLocation, peerId: myPeerId }));
+                }
+            });
+            conn.on('data', (data) => {
+                try {
+                    const msg = JSON.parse(data);
+                    if (msg.type === 'location' && msg.peerId !== myPeerId) {
+                        if (peerMarkers[msg.peerId]) {
+                            peerMarkers[msg.peerId].setLatLng([msg.lat, msg.lng]);
+                            peerMarkers[msg.peerId].setIcon(createArrowIcon(msg.heading || 0, getColor(colorIndex), 20));
+                        } else {
+                            peerMarkers[msg.peerId] = L.marker([msg.lat, msg.lng], {
+                                icon: createArrowIcon(msg.heading || 0, getColor(colorIndex), 20)
+                            }).addTo(map);
+                        }
+                        updateUsersListUI();
+                    }
+                } catch(e) {}
+            });
+            conn.on('close', () => {
+                if (peerMarkers[conn.peer]) { map.removeLayer(peerMarkers[conn.peer]); delete peerMarkers[conn.peer]; }
+                updateUsersListUI();
+            });
+        }
+
+        function broadcastLocation(loc) {
+            if (!myPeerId) return;
+            const data = JSON.stringify({ type: 'location', ...loc, peerId: myPeerId });
+            connections.forEach(conn => { if (conn.open) conn.send(data); });
+        }
+
+        // ==================== EVENT HANDLERS ====================
+        goBtn.addEventListener('click', async () => {
+            const startQ = startInput.value.trim();
+            const endQ = endInput.value.trim();
+            if (!startQ || !endQ) { showToast('Enter both locations'); return; }
+            
+            try {
+                const [start, end] = await Promise.all([geocode(startQ), geocode(endQ)]);
+                updateUserMarker(start.lat, start.lng, 0);
+                await calculateAndDisplayRoute(start, end);
+                showToast('Route ready! Tap Start');
+            } catch(e) { showToast(e.message); }
+        });
+
+        swapBtn.addEventListener('click', () => {
+            [startInput.value, endInput.value] = [endInput.value, startInput.value];
+        });
+
+        locateBtn.addEventListener('click', async () => {
+            try {
+                const pos = await getPosition();
+                updateUserMarker(pos.lat, pos.lng, pos.heading);
+                map.setView([pos.lat, pos.lng], 17);
+                startInput.value = `${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)}`;
+                showToast('Location found');
+            } catch(e) { showToast('Location denied'); }
+        });
+
+        // RECENTER BUTTON - appears when user zooms out during navigation
+        recenterBtn.addEventListener('click', () => {
+            recenterOnUser();
+            showToast('Re-centered');
+        });
+
+        overviewBtn.addEventListener('click', () => {
+            if (routeData && currentLocation) {
+                userZoomedOut = true;
+                recenterBtn.classList.add('active');
+                const bounds = L.latLngBounds([
+                    [currentLocation.lat, currentLocation.lng],
+                    [routeData.waypoints[1].latLng.lat, routeData.waypoints[1].latLng.lng]
+                ]);
+                map.fitBounds(bounds, { padding: [80, 80], maxZoom: 14 });
+            }
+        });
+
+        shareBtn.addEventListener('click', () => {
+            if (currentLocation) {
+                broadcastLocation(currentLocation);
+                showToast('Location shared');
+            }
+        });
+
+        endNavBtn.addEventListener('click', stopNavigation);
+        createSessionBtn.addEventListener('click', createSession);
+        joinSessionBtn.addEventListener('click', showJoinInput);
+        joinConfirmBtn.addEventListener('click', confirmJoin);
+        joinCancelBtn.addEventListener('click', hideJoinInput);
+        
+        joinInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') confirmJoin();
+        });
+
+        sessionIdDisplay.addEventListener('click', () => {
+            if (sessionId) { 
+                navigator.clipboard?.writeText(sessionId); 
+                showToast('Copied: ' + sessionId); 
+            }
+        });
+
+        endInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') goBtn.click();
+        });
+
+        // Detect when user manually pans/zooms during navigation
+        map.on('dragstart', () => {
+            if (navigationActive) {
+                userDraggedMap = true;
+                userZoomedOut = true;
+                recenterBtn.classList.add('active');
+            }
+        });
+
+        map.on('zoomend', () => {
+            if (navigationActive && map.getZoom() < 15) {
+                userZoomedOut = true;
+                recenterBtn.classList.add('active');
+            }
+        });
+
+        // Swipe to close sheet
+        let touchStart = 0;
+        bottomSheet.addEventListener('touchstart', (e) => { touchStart = e.touches[0].clientY; });
+        bottomSheet.addEventListener('touchmove', (e) => {
+            if (e.touches[0].clientY - touchStart > 50 && bottomSheet.scrollTop <= 0) {
+                bottomSheet.classList.remove('active');
+            }
+        });
+
+        // ==================== INIT ====================
+        async function init() {
+            try {
+                const pos = await getPosition();
+                updateUserMarker(pos.lat, pos.lng, pos.heading);
+                map.setView([pos.lat, pos.lng], 16);
+                startInput.value = `${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)}`;
+                startWatchingPosition();
+                showToast('Ready! Enter destination');
+            } catch(e) {
+                updateUserMarker(40.7128, -74.0060, 0);
+                startInput.value = '40.7128, -74.0060';
+                showToast('Using NYC • Enable GPS');
+            }
+        }
+
+        init();
+        console.log('🚗 Navigation ready');
+        console.log('📍 Enter destination → ▶ → Start Nav');
+        console.log('⊙ Re-center button appears when you zoom out');
+        console.log('👥 Join: tap 👥 → enter code → ✓');
+    </script>
+</body>
+</html>
